@@ -2,6 +2,9 @@
 import unittest
 import bs4
 import textwrap
+import signal
+import subprocess
+import sys
 import soupsieve as sv
 import pytest
 
@@ -23,6 +26,17 @@ XHTML = 0x4
 XML = 0x8
 PYHTML = 0x10
 LXML_HTML = 0x20
+
+# Compile a selector read from `stdin` and report whether it failed with a syntax error.
+COMPILE_SYNTAX_ERROR_CHECK = """\
+import sys
+import soupsieve as sv
+try:
+    sv.compile(sys.stdin.read())
+except sv.SelectorSyntaxError:
+    sys.exit(0)
+sys.exit('selector compiled without a SelectorSyntaxError')
+"""
 
 
 def skip_no_lxml(func):
@@ -102,6 +116,48 @@ class TestCase(unittest.TestCase):
         print('----Running Assert Test----')
         with self.assertRaises(exception):
             self.compile_pattern(pattern, namespaces=namespace, custom=custom)
+
+    def assert_syntax_error_no_timeout(self, pattern, timeout=3):
+        """
+        Assert pattern fails with a syntax error, not by timing out.
+
+        Guards against catastrophic regular expression backtracking (ReDoS) in the parser.
+        Where `SIGALRM` is not available (Windows), compile in a child process that can be
+        killed if it hangs; that timeout is more generous to allow for interpreter startup.
+        """
+
+        print('----Running Assert No Timeout Test----')
+        if hasattr(signal, 'SIGALRM'):
+            def timeout_handler(signum, frame):
+                raise TimeoutError
+
+            previous = signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(timeout)
+            timed_out = False
+            try:
+                with self.assertRaises(sv.SelectorSyntaxError):
+                    sv.compile(pattern)
+            except TimeoutError:
+                timed_out = True
+            finally:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, previous)
+        else:
+            timed_out = False
+            try:
+                result = subprocess.run(
+                    [sys.executable, '-c', COMPILE_SYNTAX_ERROR_CHECK],
+                    input=pattern,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True,
+                    timeout=timeout * 10
+                )
+            except subprocess.TimeoutExpired:
+                timed_out = True
+            else:
+                self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(timed_out, 'Compiling the pattern timed out: {!r}'.format(pattern))
 
     def assert_selector(self, markup, selectors, expected_ids, namespaces={}, custom=None, flags=0):
         """Assert selector."""

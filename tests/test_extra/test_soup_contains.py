@@ -307,3 +307,12 @@ class TestSoupContains(util.TestCase):
             # Verify some things
             self.assertTrue(len(w) == 1)
             self.assertTrue(issubclass(w[-1].category, FutureWarning))
+
+    def test_contains_unclosed_quote(self):
+        """Test unclosed quoted values fail for syntax error, not timeout error."""
+
+        self.assert_syntax_error_no_timeout('body :-soup-contains("' + ('x' * 300))
+        self.assert_syntax_error_no_timeout("body :-soup-contains('" + ('x' * 300))
+        self.assert_syntax_error_no_timeout('body :-soup-contains("that", "' + ('x' * 300) + ')')
+        self.assert_syntax_error_no_timeout("body :-soup-contains-own('" + ('x' * 300) + ')')
+        self.assert_syntax_error_no_timeout('body :contains("' + ('x' * 300))
