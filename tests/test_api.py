@@ -590,6 +590,64 @@ class TestInvalid(util.TestCase):
         with self.assertRaises(TypeError):
             sv.filter('div', "not a tag", flags=flags)
 
+    def test_excessive_selectors(self):
+        """Test excessive selectors."""
+
+        # Build a 500 KB selector string: "a,a,a,...,a" (250,000 items)
+        count = 10000
+        selector = ",".join("a" for _ in range(count))
+
+        # Compile the selector
+        with self.assertRaises(ValueError):
+            sv.compile(selector)
+
+    def test_excessive_custom_selectors(self):
+        """Test excessive custom selectors."""
+
+        # Build a 500 KB selector string: "a,a,a,...,a" (250,000 items)
+        count = 10000
+        selector = ",".join("a" for _ in range(count))
+
+        # Compile the selector
+        with self.assertRaises(ValueError):
+            sv.compile('div:--custom', custom={':--custom': selector})
+
+    def test_excessive_custom_and_normal_selectors(self):
+        """Test excessive custom and normal selectors."""
+
+        count = 5000
+        selector = ",".join("a" for _ in range(count))
+
+        # Compile the selector
+        with self.assertRaises(ValueError):
+            sv.compile(f':is({selector}):--custom', custom={':--custom': selector})
+
+    def test_excessive_builtin_pseudo_classes(self):
+        """Test excessive repetition of pseudo-classes that expand to precompiled selector lists."""
+
+        # A modest amount of repetition is still fine.
+        sv.compile('input' + ':read-write' * 2)
+
+        # Each `:read-write` expands to a large precompiled selector list.
+        with self.assertRaises(ValueError):
+            sv.compile('input' + ':read-write' * 1000)
+
+    def test_excessive_nested_custom_selectors(self):
+        """Test excessive selectors amplified through nested custom selectors."""
+
+        custom = {
+            ':--a': ",".join("a" for _ in range(50)),
+            ':--b': ':--a' * 50,
+            ':--c': ':--b' * 50
+        }
+
+        # Below the limit, nested custom selectors still compile.
+        sv.compile('div:--b', custom=custom)
+
+        # Nested references multiply the effective selector count.
+        with self.assertRaises(ValueError):
+            sv.compile('div:--c', custom=custom)
+
 
 class TestSyntaxErrorReporting(util.TestCase):
     """Test reporting of syntax errors."""
